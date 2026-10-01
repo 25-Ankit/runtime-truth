@@ -1,0 +1,9 @@
+1000 12:00:00.001000 execve("/usr/local/bin/python", ["python", "app.py"], [/* 24 vars */]) = 0
+1000 12:00:00.005000 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+1000 12:00:00.010000 openat(AT_FDCWD, "/usr/local/lib/python3.12/site-packages/flask/__init__.py", O_RDONLY|O_CLOEXEC) = 3
+1000 12:00:00.015000 openat(AT_FDCWD, "/usr/local/lib/python3.12/site-packages/requests/__init__.py", O_RDONLY|O_CLOEXEC) = 4
+1000 12:00:00.020000 openat(AT_FDCWD, "/usr/local/lib/python3.12/site-packages/urllib3/__init__.py", O_RDONLY|O_CLOEXEC) = 5
+1000 12:00:00.025000 openat(AT_FDCWD, "/app/config.json", O_RDONLY) = 6
+1000 12:00:00.030000 connect(7, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("93.184.216.34")}, 16) = 0
+1000 12:00:00.035000 connect(8, {sa_family=AF_INET, sin_port=htons(80), sin_addr=inet_addr("198.51.100.1")}, 16) = 0
+1000 12:00:00.040000 exit_group(0) = ?

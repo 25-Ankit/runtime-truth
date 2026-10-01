@@ -1,0 +1,9 @@
+{
+  "service_name": "demo-app",
+  "api_endpoint": "https://api.example.com",
+  "port": 8080,
+  "env": {
+    "APP_ENV": "production",
+    "PORT": "8080"
+  }
+}
