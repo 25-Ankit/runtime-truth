@@ -124,11 +124,21 @@ class ObservedModel(BaseModel):
     entities: List[ObservedEntity] = Field(default_factory=list)
 
     def get_by_type(self, entity_type: ObservedEntityType) -> List[ObservedEntity]:
+        if entity_type in (ObservedEntityType.DEPENDENCY, ObservedEntityType.PACKAGE_ARTIFACT):
+            return [
+                e for e in self.entities
+                if e.entity_type in (ObservedEntityType.DEPENDENCY, ObservedEntityType.PACKAGE_ARTIFACT)
+            ]
         return [e for e in self.entities if e.entity_type == entity_type]
 
     def get_by_normalized_value(self, entity_type: ObservedEntityType, val: str) -> Optional[ObservedEntity]:
         val_lower = val.strip().lower()
+        target_types = (
+            (ObservedEntityType.DEPENDENCY, ObservedEntityType.PACKAGE_ARTIFACT)
+            if entity_type in (ObservedEntityType.DEPENDENCY, ObservedEntityType.PACKAGE_ARTIFACT)
+            else (entity_type,)
+        )
         for e in self.entities:
-            if e.entity_type == entity_type and e.normalized_value.lower() == val_lower:
+            if e.entity_type in target_types and e.normalized_value.lower() == val_lower:
                 return e
         return None

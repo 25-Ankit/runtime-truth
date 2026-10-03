@@ -72,7 +72,7 @@ def scan_cmd(
         RuntimeMode.STATIC_ONLY.value,
         "--mode",
         "-m",
-        help="Execution mode: static_only, offline_events, host_strace, container_strace",
+        help="Execution mode: static_only, docker, offline_events, host_strace",
     ),
     offline_log: Optional[Path] = typer.Option(
         None,
@@ -110,11 +110,24 @@ def scan_cmd(
         artifact_exporter=artifact_exporter,
     )
 
-    try:
-        runtime_mode = RuntimeMode(mode)
-    except ValueError:
-        console.print(f"[red]Error:[/red] Invalid mode '{mode}'. Choose from: static_only, offline_events, host_strace, container_strace")
+    mode_aliases = {
+        "docker": RuntimeMode.DOCKER,
+        "container_strace": RuntimeMode.CONTAINER_STRACE,
+        "static": RuntimeMode.STATIC_ONLY,
+        "static_only": RuntimeMode.STATIC_ONLY,
+        "offline": RuntimeMode.OFFLINE_EVENTS,
+        "offline_events": RuntimeMode.OFFLINE_EVENTS,
+        "host": RuntimeMode.HOST_STRACE,
+        "host_strace": RuntimeMode.HOST_STRACE,
+    }
+
+    norm_mode = mode.strip().lower()
+    if norm_mode not in mode_aliases:
+        console.print(
+            f"[red]Error:[/red] Invalid mode '{mode}'. Choose from: static_only, docker, offline_events, host_strace"
+        )
         raise typer.Exit(code=1)
+    runtime_mode = mode_aliases[norm_mode]
 
     with console.status("[bold green]Analyzing project declared and observed models..."):
         result = orchestrator.execute(
@@ -144,6 +157,7 @@ def scan_cmd(
             observed_count=len(result.observed_model.entities),
             findings=result.findings,
             report_path=str(output_html or result.html_report_path),
+            raw_trace_path=str(result.raw_trace_path) if result.raw_trace_path else None,
         )
 
 
@@ -192,12 +206,14 @@ def report_cmd(
     else:
         formatter = CliReportFormatter(console)
         report_file = Path(config.artifacts_dir) / run_id / "report.html"
+        raw_file = Path(config.artifacts_dir) / run_id / "raw" / "strace.log"
         formatter.print_run_summary(
             run=run,
             declared_count=len(declared.entities),
             observed_count=len(observed.entities),
             findings=findings,
             report_path=str(report_file) if report_file.exists() else None,
+            raw_trace_path=str(raw_file) if raw_file.exists() else None,
         )
 
 

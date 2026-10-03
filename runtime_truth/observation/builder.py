@@ -28,9 +28,10 @@ class CanonicalObservedModelBuilder(ObservedModelBuilder):
         "/dev/",
         "/lib/",
         "/lib64/",
-        "/usr/lib/",
-        "/usr/lib64/",
-        "/etc/ld.so",
+        "/usr/",
+        "/etc/",
+        "/bin/",
+        "/sbin/",
     )
 
     def _extract_dependency(self, path: str) -> Optional[str]:
@@ -53,6 +54,7 @@ class CanonicalObservedModelBuilder(ObservedModelBuilder):
     def build(self, events: List[RuntimeEvent], run_id: str) -> Tuple[ObservedModel, List[Evidence]]:
         observed_map: Dict[str, ObservedEntity] = {}
         all_evidence: List[Evidence] = []
+        target_process_identified = False
 
         for ev in events:
             # Generate Evidence record for the event
@@ -116,28 +118,31 @@ class CanonicalObservedModelBuilder(ObservedModelBuilder):
             elif ev.event_type in (RuntimeEventType.FILE_READ, RuntimeEventType.FILE_WRITE):
                 fpath = ev.attributes.get("path")
                 if fpath:
-                    # Check dependency
+                    # Check dependency / package artifact
                     dep_name = self._extract_dependency(fpath)
                     if dep_name:
-                        key = f"dependency:{dep_name}"
+                        key = f"package_artifact:{dep_name}"
                         if key in observed_map:
                             ent = observed_map[key]
                             ent.last_observed_at = ev.timestamp
                             ent.occurrence_count += 1
                             ent.evidence_ids.append(evidence_id)
                         else:
-                            ent_id = generate_entity_id(ObservedEntityType.DEPENDENCY.value, dep_name)
+                            ent_id = generate_entity_id(ObservedEntityType.PACKAGE_ARTIFACT.value, dep_name)
                             observed_map[key] = ObservedEntity(
                                 entity_id=ent_id,
                                 run_id=run_id,
-                                entity_type=ObservedEntityType.DEPENDENCY,
+                                entity_type=ObservedEntityType.PACKAGE_ARTIFACT,
                                 name=dep_name,
                                 normalized_value=dep_name,
                                 first_observed_at=ev.timestamp,
                                 last_observed_at=ev.timestamp,
                                 occurrence_count=1,
                                 evidence_ids=[evidence_id],
-                                attributes={"sample_path": fpath},
+                                attributes={
+                                    "sample_path": fpath,
+                                    "observation_type": "observed_package_artifact",
+                                },
                             )
 
                     # Also track non-system application file access
@@ -167,6 +172,11 @@ class CanonicalObservedModelBuilder(ObservedModelBuilder):
             elif ev.event_type == RuntimeEventType.PROCESS_SPAWN:
                 executable = ev.attributes.get("executable")
                 if executable:
+                    is_target_proc = False
+                    if not target_process_identified:
+                        is_target_proc = True
+                        target_process_identified = True
+
                     key = f"process:{executable}"
                     if key in observed_map:
                         ent = observed_map[key]
@@ -175,6 +185,9 @@ class CanonicalObservedModelBuilder(ObservedModelBuilder):
                         ent.evidence_ids.append(evidence_id)
                     else:
                         ent_id = generate_entity_id(ObservedEntityType.PROCESS.value, executable)
+                        proc_attrs = dict(ev.attributes)
+                        proc_attrs["is_target_process"] = is_target_proc
+                        proc_attrs["process_role"] = "TARGET_PROCESS" if is_target_proc else "CHILD_PROCESS"
                         observed_map[key] = ObservedEntity(
                             entity_id=ent_id,
                             run_id=run_id,
@@ -185,7 +198,7 @@ class CanonicalObservedModelBuilder(ObservedModelBuilder):
                             last_observed_at=ev.timestamp,
                             occurrence_count=1,
                             evidence_ids=[evidence_id],
-                            attributes=ev.attributes,
+                            attributes=proc_attrs,
                         )
 
         observed_model = ObservedModel(run_id=run_id, entities=list(observed_map.values()))

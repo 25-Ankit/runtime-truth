@@ -10,7 +10,12 @@ from runtime_truth.core.models import (
     ObservedModel,
     Run,
 )
-from runtime_truth.findings.engine import FindingEngine
+from runtime_truth.findings.engine import (
+    ACTIONABLE_FINDING_TYPES,
+    INFORMATIONAL_OBSERVATION_TYPES,
+    UNRESOLVED_CORRELATION_TYPES,
+    FindingEngine,
+)
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -146,8 +151,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <div class="grid">
     <div class="card">
-      <div class="card-title">Total Findings</div>
-      <div class="card-value">{{ summary.total_findings }}</div>
+      <div class="card-title">Actionable Findings</div>
+      <div class="card-value">{{ summary.actionable_findings }}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Informational Observations</div>
+      <div class="card-value">{{ summary.informational_observations }}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Unresolved Correlations</div>
+      <div class="card-value">{{ summary.unresolved_correlations }}</div>
     </div>
     <div class="card">
       <div class="card-title">Declared Entities</div>
@@ -163,8 +176,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
   </div>
 
-  <h2>Findings</h2>
-  {% if findings %}
+  <h2>Actionable Findings</h2>
+  {% if actionable_findings %}
   <table>
     <thead>
       <tr>
@@ -176,7 +189,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </tr>
     </thead>
     <tbody>
-      {% for f in findings %}
+      {% for f in actionable_findings %}
       <tr>
         <td>
           <span class="badge badge-{{ f.severity.value }}">{{ f.severity.value }}</span>
@@ -207,7 +220,101 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </tbody>
   </table>
   {% else %}
-  <p style="color: var(--text-muted);">No discrepancies detected between declared and observed models.</p>
+  <p style="color: var(--text-muted);">No actionable discrepancies detected between declared and observed models.</p>
+  {% endif %}
+
+  <h2>Unresolved Correlations</h2>
+  {% if unresolved_correlations %}
+  <table>
+    <thead>
+      <tr>
+        <th>Severity</th>
+        <th>Category</th>
+        <th>Type</th>
+        <th>Subject</th>
+        <th>Explanation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in unresolved_correlations %}
+      <tr>
+        <td>
+          <span class="badge badge-{{ f.severity.value }}">{{ f.severity.value }}</span>
+        </td>
+        <td>{{ f.category.value }}</td>
+        <td><code>{{ f.finding_type.value }}</code></td>
+        <td><strong>{{ f.subject }}</strong></td>
+        <td>
+          {{ f.explanation }}
+          {% if f.evidence_ids %}
+          <details>
+            <summary>{{ f.evidence_ids|length }} Evidence Item(s)</summary>
+            <ul>
+              {% for eid in f.evidence_ids %}
+                {% set evi = evidence_map.get(eid) %}
+                {% if evi %}
+                  <li><code>{{ evi.collector }}</code>: {{ evi.description }} (<code>{{ evi.raw_evidence or '' }}</code>)</li>
+                {% else %}
+                  <li><code>{{ eid }}</code></li>
+                {% endif %}
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color: var(--text-muted);">No unresolved correlations.</p>
+  {% endif %}
+
+  <h2>Informational Observations</h2>
+  {% if informational_observations %}
+  <table>
+    <thead>
+      <tr>
+        <th>Severity</th>
+        <th>Category</th>
+        <th>Type</th>
+        <th>Subject</th>
+        <th>Explanation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in informational_observations %}
+      <tr>
+        <td>
+          <span class="badge badge-{{ f.severity.value }}">{{ f.severity.value }}</span>
+        </td>
+        <td>{{ f.category.value }}</td>
+        <td><code>{{ f.finding_type.value }}</code></td>
+        <td><strong>{{ f.subject }}</strong></td>
+        <td>
+          {{ f.explanation }}
+          {% if f.evidence_ids %}
+          <details>
+            <summary>{{ f.evidence_ids|length }} Evidence Item(s)</summary>
+            <ul>
+              {% for eid in f.evidence_ids %}
+                {% set evi = evidence_map.get(eid) %}
+                {% if evi %}
+                  <li><code>{{ evi.collector }}</code>: {{ evi.description }} (<code>{{ evi.raw_evidence or '' }}</code>)</li>
+                {% else %}
+                  <li><code>{{ eid }}</code></li>
+                {% endif %}
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color: var(--text-muted);">No informational observations.</p>
   {% endif %}
 
   <footer style="margin-top: 40px; border-top: 1px solid var(--border); padding-top: 16px; font-size: 12px; color: var(--text-muted);">
@@ -237,6 +344,9 @@ class HtmlReportGenerator:
     ) -> str:
         summary = self.finding_engine.summarize(findings)
         evidence_map = {e.evidence_id: e for e in evidence_list}
+        actionable_findings = [f for f in findings if f.finding_type in ACTIONABLE_FINDING_TYPES]
+        unresolved_correlations = [f for f in findings if f.finding_type in UNRESOLVED_CORRELATION_TYPES]
+        informational_observations = [f for f in findings if f.finding_type in INFORMATIONAL_OBSERVATION_TYPES]
 
         return self.template.render(
             run=run,
@@ -244,5 +354,8 @@ class HtmlReportGenerator:
             declared_model=declared_model,
             observed_model=observed_model,
             findings=findings,
+            actionable_findings=actionable_findings,
+            unresolved_correlations=unresolved_correlations,
+            informational_observations=informational_observations,
             evidence_map=evidence_map,
         )

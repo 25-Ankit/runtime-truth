@@ -22,3 +22,8 @@ class RuntimeObserverConfig(BaseModel):
     docker_image: Optional[str] = None
     container_command: Optional[List[str]] = None
     raw_log_path: Optional[str] = None
+    tracer_image_tag: str = "runtime-truth-tracer:latest"
+    dockerfile_path: Optional[str] = None
+    build_if_missing: bool = True
+    target_workdir: str = "/app"
+    read_only_mount: bool = True

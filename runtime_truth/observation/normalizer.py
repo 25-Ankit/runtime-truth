@@ -100,6 +100,8 @@ class StraceEventNormalizer(EventNormalizer):
 
         # 4. execve()
         elif syscall == "execve":
+            if result_str.strip().startswith("-1"):
+                return None
             exec_match = self.EXECVE_REGEX.search(args_str)
             if exec_match:
                 executable = exec_match.group(1)

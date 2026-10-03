@@ -7,7 +7,12 @@ from rich.table import Table
 
 from runtime_truth.core.enums import FindingSeverity
 from runtime_truth.core.models import Finding, Run
-from runtime_truth.findings.engine import FindingEngine
+from runtime_truth.findings.engine import (
+    ACTIONABLE_FINDING_TYPES,
+    INFORMATIONAL_OBSERVATION_TYPES,
+    UNRESOLVED_CORRELATION_TYPES,
+    FindingEngine,
+)
 
 SEV_STYLES = {
     FindingSeverity.HIGH: "bold red",
@@ -31,6 +36,7 @@ class CliReportFormatter:
         observed_count: int,
         findings: List[Finding],
         report_path: Optional[str] = None,
+        raw_trace_path: Optional[str] = None,
     ) -> None:
         summary = self.finding_engine.summarize(findings)
 
@@ -40,33 +46,50 @@ class CliReportFormatter:
             f"[bold]Mode:[/bold] {run.runtime_mode.value}\n"
             f"[bold]Declared Entities:[/bold] {declared_count}\n"
             f"[bold]Observed Entities:[/bold] {observed_count}\n"
-            f"[bold]Total Discrepancies:[/bold] {summary.total_findings}"
+            f"[bold]Actionable Findings:[/bold] {summary.actionable_findings}\n"
+            f"[bold]Informational Observations:[/bold] {summary.informational_observations}\n"
+            f"[bold]Unresolved Correlations:[/bold] {summary.unresolved_correlations}"
         )
+        if raw_trace_path:
+            panel_content += f"\n[bold]Raw Evidence:[/bold] {raw_trace_path}"
         if report_path:
             panel_content += f"\n[bold]Report:[/bold] {report_path}"
 
         self.console.print(Panel(panel_content, title="Runtime Truth &mdash; Run Summary", border_style="blue"))
 
-        if not findings:
+        actionable = [f for f in findings if f.finding_type in ACTIONABLE_FINDING_TYPES]
+        unresolved = [f for f in findings if f.finding_type in UNRESOLVED_CORRELATION_TYPES]
+        informational = [f for f in findings if f.finding_type in INFORMATIONAL_OBSERVATION_TYPES]
+
+        if not actionable and not unresolved and not informational:
             self.console.print("[green]✔ No discrepancies detected between declared and observed models.[/green]\n")
             return
 
-        table = Table(title="Reconciliation Findings", show_lines=True)
-        table.add_column("Severity", justify="center", width=10)
-        table.add_column("Category", width=12)
-        table.add_column("Type", width=34)
-        table.add_column("Subject", width=20)
-        table.add_column("Explanation")
+        if not actionable and not unresolved:
+            self.console.print("[green]✔ No actionable discrepancies detected between declared and observed models.[/green]\n")
 
-        for f in findings:
-            style = SEV_STYLES.get(f.severity, "white")
-            table.add_row(
-                f"[{style}]{f.severity.value.upper()}[/{style}]",
-                f.category.value,
-                f"[dim]{f.finding_type.value}[/dim]",
-                f"[bold]{f.subject}[/bold]",
-                f.explanation,
-            )
+        def _render_table(title: str, items: list[Finding]) -> None:
+            table = Table(title=title, show_lines=True)
+            table.add_column("Severity", justify="center", width=10)
+            table.add_column("Category", width=12)
+            table.add_column("Type", width=34)
+            table.add_column("Subject", width=20)
+            table.add_column("Explanation")
+            for f in items:
+                style = SEV_STYLES.get(f.severity, "white")
+                table.add_row(
+                    f"[{style}]{f.severity.value.upper()}[/{style}]",
+                    f.category.value,
+                    f"[dim]{f.finding_type.value}[/dim]",
+                    f"[bold]{f.subject}[/bold]",
+                    f.explanation,
+                )
+            self.console.print(table)
 
-        self.console.print(table)
+        if actionable:
+            _render_table("Actionable Findings", actionable)
+        if unresolved:
+            _render_table("Unresolved Correlations", unresolved)
+        if informational:
+            _render_table("Informational Observations", informational)
         self.console.print()

@@ -59,7 +59,7 @@ def test_orchestrator_with_offline_strace_replay(demo_app_dir):
         # Validate findings types
         finding_types = {f.finding_type for f in res.findings}
         assert FindingType.DEPENDENCY_DECLARED_NOT_OBSERVED in finding_types
-        assert FindingType.RUNTIME_DEPENDENCY_NOT_DECLARED in finding_types
+        assert FindingType.PACKAGE_ARTIFACT_OBSERVED_NOT_DECLARED in finding_types
 
         # Verify artifacts
         assert (res.artifact_dir / "declared.json").exists()

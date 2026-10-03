@@ -32,6 +32,9 @@ runtime-truth = "runtime_truth.cli.main:app"
 where = ["."]
 include = ["runtime_truth*"]
 
+[tool.setuptools.package-data]
+runtime_truth = ["runtime/docker/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

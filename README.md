@@ -116,7 +116,15 @@ runtime-truth --help
 runtime-truth scan /path/to/project
 ```
 
-### 2. Scan with Offline Runtime Syscall Replay
+### 2. Scan with Containerized Runtime Observation (Docker)
+
+```bash
+runtime-truth scan cases/demo-app --mode docker
+```
+
+Runs the application inside the reproducible `runtime-truth-tracer` container using `strace`. The host machine does not need `strace` installed. Raw traces are preserved under `.runtimetruth/runs/<run-id>/raw/strace.log`.
+
+### 3. Scan with Offline Runtime Syscall Replay
 
 ```bash
 runtime-truth scan cases/demo-app --mode offline_events --offline-log cases/demo-app/recorded_strace.log
@@ -127,7 +135,7 @@ Output formatted JSON report:
 runtime-truth scan cases/demo-app --mode offline_events --offline-log cases/demo-app/recorded_strace.log --json
 ```
 
-### 3. Inspect Previous Run Reports
+### 4. Inspect Previous Run Reports
 
 ```bash
 # Terminal summary
@@ -140,7 +148,7 @@ runtime-truth report <run-id> --format json
 runtime-truth report <run-id> --format html > report.html
 ```
 
-### 4. Create Baseline and Compare Runs (Diff)
+### 5. Create Baseline and Compare Runs (Diff)
 
 ```bash
 # Establish run as accepted baseline

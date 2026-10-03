@@ -1,0 +1,25 @@
+# Runtime Truth Tracer Environment
+# Dedicated reproducible container environment for Runtime Truth v0.1 Phase 1
+FROM python:3.12-slim
+
+# Prevent interactive prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# Install strace for system call observation
+# Security Note: strace requires CAP_SYS_PTRACE (--cap-add=SYS_PTRACE) inside the container
+# to attach to and trace child processes via ptrace syscalls.
+# We explicitly avoid full privileged mode (--privileged) to enforce least-privilege isolation.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        strace \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pre-install common application dependencies needed for demo and standard workloads
+RUN pip install --no-cache-dir flask requests urllib3
+
+WORKDIR /app
+
+# The default command can be overridden by Runtime Truth runner
+CMD ["strace", "-V"]

@@ -71,10 +71,14 @@ The **Reconciliation Engine** operates exclusively on `DeclaredModel` vs `Observ
 
 - **Interface:** `RuntimeObserver` with `is_available()` and `observe(target, run_id)`.
 - **Implementations:**
+  - `DockerStraceObserver`: Builds or locates `runtime-truth-tracer:latest` (from `Dockerfile.tracer`), mounts the target project read-only (`:ro`), and traces child processes via `strace` using `--cap-add=SYS_PTRACE`. The host does not need `strace` installed.
   - `StraceHostObserver`: Executes commands directly on the host using `strace -f -tt -e trace=...`.
-  - `DockerStraceObserver`: Launches a Docker container with `SYS_PTRACE` capabilities and runs `strace` inside.
-  - `OfflineLogObserver`: Reads and replays previously recorded raw strace logs. Enables deterministic testing and CI verification without root privileges.
-- **Output:** Stream of `RawEvent` objects containing line sequences and raw payloads.
+  - `OfflineLogObserver`: Reads and replays previously recorded raw strace logs. Enables deterministic testing and CI verification without root privileges or Docker.
+- **Isolation Boundaries:**
+  - Containers run with `--cap-add=SYS_PTRACE` (required for `ptrace` system calls), avoiding full `--privileged` mode.
+  - Target files are mounted read-only (`:ro`).
+  - No Docker socket or host credentials are mounted into the tracer.
+- **Output:** Stream of `RawEvent` objects containing line sequences and raw payloads, and preservation of raw log in `.runtimetruth/runs/<run-id>/raw/strace.log`.
 
 ### 3. Canonical Normalization & Synthesis (`runtime_truth/observation/`)
 

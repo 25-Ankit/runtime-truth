@@ -44,6 +44,9 @@ class JsonReportGenerator:
             },
             "summary": {
                 "total_findings": summary.total_findings,
+                "actionable_findings": summary.actionable_findings,
+                "informational_observations": summary.informational_observations,
+                "unresolved_correlations": summary.unresolved_correlations,
                 "by_category": {k.value: v for k, v in summary.by_category.items()},
                 "by_severity": {k.value: v for k, v in summary.by_severity.items()},
                 "by_type": {k.value: v for k, v in summary.by_type.items()},

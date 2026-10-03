@@ -13,6 +13,33 @@ from runtime_truth.core.models import Finding
 from runtime_truth.findings.models import FindingSummary
 
 
+ACTIONABLE_FINDING_TYPES = frozenset(
+    {
+        FindingType.DEPENDENCY_DECLARED_NOT_OBSERVED,
+        FindingType.RUNTIME_DEPENDENCY_NOT_DECLARED,
+        FindingType.NETWORK_DECLARED_NOT_OBSERVED,
+        FindingType.NETWORK_OBSERVED_NOT_DECLARED,
+        FindingType.FILESYSTEM_OBSERVED_NOT_DECLARED,
+        FindingType.PROCESS_OBSERVED_NOT_DECLARED,
+        FindingType.ENVIRONMENT_OBSERVED_NOT_DECLARED,
+        FindingType.BEHAVIORAL_DRIFT,
+    }
+)
+
+INFORMATIONAL_OBSERVATION_TYPES = frozenset(
+    {
+        FindingType.PACKAGE_ARTIFACT_OBSERVED_NOT_DECLARED,
+        FindingType.TARGET_PROCESS,
+    }
+)
+
+UNRESOLVED_CORRELATION_TYPES = frozenset(
+    {
+        FindingType.NETWORK_IDENTITY_UNCORRELATED,
+    }
+)
+
+
 class FindingEngine:
     """Creates structured, evidence-backed findings."""
 
@@ -49,4 +76,10 @@ class FindingEngine:
             summary.by_category[f.category] = summary.by_category.get(f.category, 0) + 1
             summary.by_severity[f.severity] = summary.by_severity.get(f.severity, 0) + 1
             summary.by_type[f.finding_type] = summary.by_type.get(f.finding_type, 0) + 1
+            if f.finding_type in UNRESOLVED_CORRELATION_TYPES:
+                summary.unresolved_correlations += 1
+            elif f.finding_type in INFORMATIONAL_OBSERVATION_TYPES:
+                summary.informational_observations += 1
+            else:
+                summary.actionable_findings += 1
         return summary

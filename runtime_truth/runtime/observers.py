@@ -19,6 +19,7 @@ class OfflineLogObserver(RuntimeObserver):
 
     def __init__(self, log_path: Path):
         self.log_path = Path(log_path)
+        self.last_raw_trace: Optional[str] = None
 
     def is_available(self) -> bool:
         return self.log_path.exists() and self.log_path.is_file()
@@ -31,7 +32,9 @@ class OfflineLogObserver(RuntimeObserver):
         now = datetime.now(timezone.utc)
         try:
             with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
-                for idx, line in enumerate(f, start=1):
+                content = f.read()
+                self.last_raw_trace = content
+                for idx, line in enumerate(content.splitlines(), start=1):
                     stripped = line.strip()
                     if not stripped:
                         continue
@@ -55,6 +58,7 @@ class StraceHostObserver(RuntimeObserver):
 
     def __init__(self, config: Optional[RuntimeObserverConfig] = None):
         self.config = config or RuntimeObserverConfig()
+        self.last_raw_trace: Optional[str] = None
 
     def is_available(self) -> bool:
         return shutil.which("strace") is not None
@@ -86,6 +90,7 @@ class StraceHostObserver(RuntimeObserver):
                 timeout=self.config.timeout_seconds,
             )
             stderr_output = proc.stderr
+            self.last_raw_trace = stderr_output
         except subprocess.TimeoutExpired as exc:
             raise ObservationError(f"Execution timed out after {self.config.timeout_seconds}s") from exc
         except Exception as exc:
@@ -115,6 +120,7 @@ class DockerStraceObserver(RuntimeObserver):
 
     def __init__(self, config: Optional[RuntimeObserverConfig] = None):
         self.config = config or RuntimeObserverConfig()
+        self.last_raw_trace: Optional[str] = None
 
     def is_available(self) -> bool:
         docker_bin = shutil.which("docker")
@@ -127,20 +133,84 @@ class DockerStraceObserver(RuntimeObserver):
         except Exception:
             return False
 
-    def observe(self, target: Any, run_id: str) -> List[RawEvent]:
-        if not self.is_available():
+    def ensure_tracer_image(self) -> str:
+        """Verify the tracer image exists or build it from Dockerfile.tracer."""
+        if self.config.docker_image:
+            return self.config.docker_image
+
+        image_tag = self.config.tracer_image_tag
+
+        # Check if image already exists locally
+        inspect_res = subprocess.run(
+            ["docker", "image", "inspect", image_tag],
+            capture_output=True,
+            timeout=5,
+        )
+        if inspect_res.returncode == 0:
+            return image_tag
+
+        if not self.config.build_if_missing:
             raise ObservationError(
-                "Docker is not available or the Docker daemon is not running/accessible."
+                f"Tracer image '{image_tag}' not found and build_if_missing is False."
             )
 
-        image = self.config.docker_image or (str(target) if isinstance(target, str) else "python:3.12-slim")
-        container_cmd = self.config.container_command or ["python", "app.py"]
+        # Locate Dockerfile.tracer
+        from runtime_truth.runtime.docker import get_tracer_dockerfile_path
 
+        dockerfile = Path(self.config.dockerfile_path) if self.config.dockerfile_path else get_tracer_dockerfile_path()
+        if not dockerfile.exists():
+            raise ObservationError(f"Tracer Dockerfile not found at {dockerfile}")
+
+        build_cmd = [
+            "docker",
+            "build",
+            "-t",
+            image_tag,
+            "-f",
+            str(dockerfile),
+            str(dockerfile.parent),
+        ]
+        try:
+            build_proc = subprocess.run(
+                build_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if build_proc.returncode != 0:
+                raise ObservationError(
+                    f"Failed to build tracer image {image_tag}: {build_proc.stderr}"
+                )
+        except subprocess.TimeoutExpired as exc:
+            raise ObservationError(f"Building tracer image timed out: {exc}") from exc
+        except Exception as exc:
+            raise ObservationError(f"Error building tracer image: {exc}") from exc
+
+        return image_tag
+
+    def build_docker_command(
+        self,
+        image: str,
+        target_dir: Optional[Path],
+        command: List[str],
+    ) -> List[str]:
+        """Construct the docker run command line."""
         docker_cmd = [
             "docker",
             "run",
             "--rm",
             "--cap-add=SYS_PTRACE",
+        ]
+        if target_dir and target_dir.is_dir():
+            mount_mode = "ro" if self.config.read_only_mount else "rw"
+            docker_cmd.extend([
+                "-v",
+                f"{target_dir.resolve()}:{self.config.target_workdir}:{mount_mode}",
+                "-w",
+                self.config.target_workdir,
+            ])
+
+        docker_cmd.extend([
             image,
             "strace",
             "-f",
@@ -149,8 +219,41 @@ class DockerStraceObserver(RuntimeObserver):
             f"trace={','.join(self.config.syscalls)}",
             "-s",
             "1024",
-            *container_cmd,
-        ]
+            *command,
+        ])
+        return docker_cmd
+
+    def observe(self, target: Any, run_id: str) -> List[RawEvent]:
+        if not self.is_available():
+            raise ObservationError(
+                "Docker is not available or the Docker daemon is not running/accessible."
+            )
+
+        image = self.ensure_tracer_image()
+
+        target_dir: Optional[Path] = None
+        target_path = Path(str(target)) if target else None
+        if target_path and target_path.exists() and target_path.is_dir():
+            target_dir = target_path
+
+        # Determine target execution command
+        if self.config.container_command:
+            container_cmd = list(self.config.container_command)
+        elif target_dir:
+            if (target_dir / "app.py").exists():
+                container_cmd = ["python3", "app.py"]
+            elif (target_dir / "main.py").exists():
+                container_cmd = ["python3", "main.py"]
+            else:
+                container_cmd = ["python3", "-V"]
+        else:
+            container_cmd = ["python3", "-V"]
+
+        docker_cmd = self.build_docker_command(
+            image=image,
+            target_dir=target_dir,
+            command=container_cmd,
+        )
 
         try:
             proc = subprocess.run(
@@ -160,6 +263,7 @@ class DockerStraceObserver(RuntimeObserver):
                 timeout=self.config.timeout_seconds,
             )
             stderr_output = proc.stderr
+            self.last_raw_trace = stderr_output
         except subprocess.TimeoutExpired as exc:
             raise ObservationError(f"Docker execution timed out after {self.config.timeout_seconds}s") from exc
         except Exception as exc:
@@ -177,7 +281,12 @@ class DockerStraceObserver(RuntimeObserver):
                     collector="strace_docker",
                     raw_payload=stripped,
                     timestamp=now,
-                    metadata={"image": image, "exit_code": proc.returncode},
+                    metadata={
+                        "image": image,
+                        "target": str(target),
+                        "run_id": run_id,
+                        "exit_code": proc.returncode,
+                    },
                 )
             )
 

@@ -2,12 +2,15 @@
 
 import ast
 from pathlib import Path
+import sys
 from typing import List
 
 from runtime_truth.core.enums import DeclaredEntityType
 from runtime_truth.core.identifiers import generate_entity_id
 from runtime_truth.core.models import DeclaredEntity, SourceLocation
 from runtime_truth.static_analysis.base import StaticParser
+
+STDLIB_MODULES = getattr(sys, "stdlib_module_names", frozenset()) | set(sys.builtin_module_names)
 
 
 class PythonAstParser(StaticParser):
@@ -35,6 +38,7 @@ class PythonAstParser(StaticParser):
                 for alias in node.names:
                     top_module = alias.name.split(".")[0]
                     norm_name = top_module.lower().replace("_", "-")
+                    is_stdlib = (top_module in STDLIB_MODULES) or (top_module in sys.builtin_module_names)
                     entity_id = generate_entity_id(
                         DeclaredEntityType.DEPENDENCY.value,
                         norm_name,
@@ -54,7 +58,11 @@ class PythonAstParser(StaticParser):
                                 line_number=node.lineno,
                                 column_number=node.col_offset,
                             ),
-                            metadata={"full_import": alias.name, "syntax": "import"},
+                            metadata={
+                                "full_import": alias.name,
+                                "syntax": "import",
+                                "is_stdlib": is_stdlib,
+                            },
                         )
                     )
 
@@ -63,6 +71,7 @@ class PythonAstParser(StaticParser):
                 if node.module:
                     top_module = node.module.split(".")[0]
                     norm_name = top_module.lower().replace("_", "-")
+                    is_stdlib = (top_module in STDLIB_MODULES) or (top_module in sys.builtin_module_names)
                     entity_id = generate_entity_id(
                         DeclaredEntityType.DEPENDENCY.value,
                         norm_name,
@@ -83,7 +92,12 @@ class PythonAstParser(StaticParser):
                                 line_number=node.lineno,
                                 column_number=node.col_offset,
                             ),
-                            metadata={"full_import": node.module, "names": [a.name for a in node.names], "syntax": "from_import"},
+                            metadata={
+                                "full_import": node.module,
+                                "names": [a.name for a in node.names],
+                                "syntax": "from_import",
+                                "is_stdlib": is_stdlib,
+                            },
                         )
                     )
 

@@ -49,6 +49,7 @@ class OrchestrationResult:
     findings: List[Finding]
     artifact_dir: Optional[Path] = None
     html_report_path: Optional[Path] = None
+    raw_trace_path: Optional[Path] = None
 
 
 class Orchestrator:
@@ -117,16 +118,28 @@ class Orchestrator:
             runtime_events: List[RuntimeEvent] = []
             evidence_list: List[Evidence] = []
             observed_model = ObservedModel(run_id=run_id, entities=[])
+            raw_trace_content: Optional[str] = None
 
-            # Select observer if offline log provided
+            # Select observer if offline log provided or runtime mode requested
             active_observer = observer
             if offline_log_path and offline_log_path.exists():
                 active_observer = OfflineLogObserver(offline_log_path)
                 runtime_mode = RuntimeMode.OFFLINE_EVENTS
                 run.runtime_mode = runtime_mode
+            elif active_observer is None:
+                if runtime_mode in (RuntimeMode.DOCKER, RuntimeMode.CONTAINER_STRACE):
+                    from runtime_truth.runtime.observers import DockerStraceObserver
+                    active_observer = DockerStraceObserver()
+                elif runtime_mode == RuntimeMode.HOST_STRACE:
+                    from runtime_truth.runtime.observers import StraceHostObserver
+                    active_observer = StraceHostObserver()
 
             if active_observer and active_observer.is_available():
                 raw_events = active_observer.observe(target=resolved_project, run_id=run_id)
+                raw_trace_content = getattr(active_observer, "last_raw_trace", None)
+                if raw_trace_content is None and raw_events:
+                    raw_trace_content = "\n".join(e.raw_payload for e in raw_events) + "\n"
+
                 for raw_ev in raw_events:
                     canonical_ev = self.normalizer.normalize(raw_ev, run_id=run_id)
                     if canonical_ev:
@@ -136,6 +149,10 @@ class Orchestrator:
                 observed_model, evidence_list = self.model_builder.build(runtime_events, run_id=run_id)
                 self.observed_repo.save_many(observed_model.entities)
                 self.evidence_repo.save_many(evidence_list)
+            elif active_observer and not active_observer.is_available():
+                raise ObservationError(
+                    f"Selected runtime observer '{type(active_observer).__name__}' is not available in the current environment."
+                )
 
             # 3. Reconciliation -> Findings
             findings = self.reconciliation_engine.reconcile(declared_model, observed_model)
@@ -157,12 +174,15 @@ class Orchestrator:
                 observed_entities=observed_model.entities,
                 findings=findings,
                 html_report_content=html_content,
+                raw_trace_content=raw_trace_content,
             )
 
             # Complete Run
             run.status = RunStatus.COMPLETED
             run.finished_at = datetime.now(timezone.utc)
             self.run_repo.save(run)
+
+            raw_trace_path = (artifact_dir / "raw" / "strace.log") if (artifact_dir / "raw" / "strace.log").exists() else None
 
             return OrchestrationResult(
                 run=run,
@@ -173,6 +193,7 @@ class Orchestrator:
                 findings=findings,
                 artifact_dir=artifact_dir,
                 html_report_path=artifact_dir / "report.html",
+                raw_trace_path=raw_trace_path,
             )
 
         except Exception as exc:

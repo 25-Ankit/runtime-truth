@@ -31,6 +31,7 @@ class ArtifactExporter:
         observed_entities: List[ObservedEntity],
         findings: List[Finding],
         html_report_content: Optional[str] = None,
+        raw_trace_content: Optional[str] = None,
     ) -> Path:
         run_dir = self.get_run_dir(run_id)
 
@@ -39,23 +40,30 @@ class ArtifactExporter:
         declared_data = [e.model_dump(mode="json") for e in declared_entities]
         declared_file.write_text(json.dumps(declared_data, indent=2), encoding="utf-8")
 
-        # 2. events.jsonl
+        # 2. raw/strace.log (Preserve raw evidence)
+        if raw_trace_content is not None:
+            raw_dir = run_dir / "raw"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            raw_file = raw_dir / "strace.log"
+            raw_file.write_text(raw_trace_content, encoding="utf-8")
+
+        # 3. events.jsonl
         events_file = run_dir / "events.jsonl"
         with open(events_file, "w", encoding="utf-8") as f:
             for ev in runtime_events:
                 f.write(json.dumps(ev.model_dump(mode="json")) + "\n")
 
-        # 3. observed.json
+        # 4. observed.json
         observed_file = run_dir / "observed.json"
         observed_data = [e.model_dump(mode="json") for e in observed_entities]
         observed_file.write_text(json.dumps(observed_data, indent=2), encoding="utf-8")
 
-        # 4. findings.json
+        # 5. findings.json
         findings_file = run_dir / "findings.json"
         findings_data = [f.model_dump(mode="json") for f in findings]
         findings_file.write_text(json.dumps(findings_data, indent=2), encoding="utf-8")
 
-        # 5. report.html
+        # 6. report.html
         if html_report_content:
             report_file = run_dir / "report.html"
             report_file.write_text(html_report_content, encoding="utf-8")
