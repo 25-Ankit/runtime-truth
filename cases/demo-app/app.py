@@ -29,28 +29,44 @@ def load_application_config() -> dict:
     return {}
 
 
-def simulate_activity():
+def resolve_and_connect(hostname: str, port: int) -> None:
+    # Resolve through the system resolver (observed as DNS evidence when the
+    # container uses the deterministic stub resolver), then connect to the
+    # resolved address (observed as a connect syscall). No hardcoded IPs:
+    # without resolution there is no connection attempt.
+    try:
+        resolved = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except Exception:
+        return
+    for family, socktype, proto, _, sockaddr in resolved:
+        try:
+            s = socket.socket(family, socktype, proto)
+            s.settimeout(0.2)
+            s.connect(sockaddr)
+            s.close()
+            return
+        except Exception:
+            continue
+
+
+def simulate_activity(endpoint: str):
     # 1. Process activity: execute standard child process
     try:
         subprocess.run(["echo", "runtime-truth demo process"], capture_output=True)
     except Exception:
         pass
 
-    # 2. Network activity: non-blocking outbound socket connect attempt to api.example.com
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.2)
-        s.connect(("93.184.216.34", 443))
-        s.close()
-    except Exception:
-        pass
+    # 2. Network activity: resolve the declared endpoint hostname, then
+    # attempt a short-timeout outbound connection to the resolved address.
+    hostname = endpoint.split("://", 1)[-1].split("/", 1)[0].split(":")[0]
+    resolve_and_connect(hostname, 443)
 
 
 def main():
     config = load_application_config()
     service_name = config.get("service_name", "unknown-service")
     endpoint = config.get("api_endpoint", "https://api.example.com")
-    simulate_activity()
+    simulate_activity(endpoint)
     print(f"[{service_name}] Running in {APP_ENV} on port {PORT}. Contacting {endpoint}...")
 
 

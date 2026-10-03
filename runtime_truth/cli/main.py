@@ -80,6 +80,13 @@ def scan_cmd(
         help="Path to raw strace log file for offline event replay.",
         exists=True,
     ),
+    dns_log: Optional[Path] = typer.Option(
+        None,
+        "--dns-log",
+        help="Path to recorded stub-DNS JSONL file for offline DNS replay "
+        "(pairs with --offline-log; live docker mode collects DNS automatically).",
+        exists=True,
+    ),
     db_path: Optional[str] = typer.Option(
         None,
         "--db",
@@ -134,6 +141,7 @@ def scan_cmd(
             project_path=path,
             runtime_mode=runtime_mode,
             offline_log_path=offline_log,
+            dns_log_path=dns_log,
         )
 
     if output_html and result.html_report_path:
@@ -158,6 +166,8 @@ def scan_cmd(
             findings=result.findings,
             report_path=str(output_html or result.html_report_path),
             raw_trace_path=str(result.raw_trace_path) if result.raw_trace_path else None,
+            raw_dns_path=str(result.raw_dns_path) if result.raw_dns_path else None,
+            observed_entities=result.observed_model.entities,
         )
 
 
@@ -207,6 +217,7 @@ def report_cmd(
         formatter = CliReportFormatter(console)
         report_file = Path(config.artifacts_dir) / run_id / "report.html"
         raw_file = Path(config.artifacts_dir) / run_id / "raw" / "strace.log"
+        dns_file = Path(config.artifacts_dir) / run_id / "raw" / "dns.jsonl"
         formatter.print_run_summary(
             run=run,
             declared_count=len(declared.entities),
@@ -214,6 +225,8 @@ def report_cmd(
             findings=findings,
             report_path=str(report_file) if report_file.exists() else None,
             raw_trace_path=str(raw_file) if raw_file.exists() else None,
+            raw_dns_path=str(dns_file) if dns_file.exists() else None,
+            observed_entities=observed.entities,
         )
 
 

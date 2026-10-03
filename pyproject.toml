@@ -33,7 +33,7 @@ where = ["."]
 include = ["runtime_truth*"]
 
 [tool.setuptools.package-data]
-runtime_truth = ["runtime/docker/*"]
+runtime_truth = ["runtime/docker/*", "runtime/dns/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

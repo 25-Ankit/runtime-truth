@@ -86,10 +86,13 @@ class ReconciliationEngine:
                 )
             )
 
-        # 2. Reconcile Network Destinations
+        # 2. Reconcile Network Destinations (DNS-correlation aware).
+        # The engine consumes normalized observations only: each observed
+        # network entity carries correlated_hostnames (possibly empty) attached
+        # by the ObservedModelBuilder from temporally valid dns_resolution evidence.
+        # No DNS wire-format or resolver logic lives here.
         declared_nets = declared_model.get_by_type(DeclaredEntityType.NETWORK_DESTINATION)
         observed_nets = observed_model.get_by_type(ObservedEntityType.NETWORK_DESTINATION)
-        net_match = self.matcher.match_category(declared_nets, observed_nets)
 
         def is_ip(val: str) -> bool:
             try:
@@ -99,60 +102,130 @@ class ReconciliationEngine:
                 return False
 
         declared_hostnames = [d for d in declared_nets if not is_ip(d.name)]
+        declared_values = {d.normalized_value.strip().lower() for d in declared_nets}
 
-        for d in net_match.declared_only:
-            findings.append(
-                self.finding_engine.create_finding(
-                    run_id=run_id,
-                    category=FindingCategory.NETWORK,
-                    finding_type=FindingType.NETWORK_DECLARED_NOT_OBSERVED,
-                    severity=FindingSeverity.LOW,
-                    subject=d.name,
-                    explanation=(
-                        f"Network destination '{d.name}' was declared in {d.source} "
-                        f"but no outbound network connection to it was observed."
-                    ),
-                    declared_state=d.model_dump(mode="json"),
-                    observed_state=None,
-                    evidence_ids=[],
-                )
-            )
+        matched_declared_values: Set[str] = set()
 
-        for o in net_match.observed_only:
-            # Until DNS correlation exists, distinguish observed numeric IP from declared hostname
-            if is_ip(o.name) and declared_hostnames:
+        for o in observed_nets:
+            correlated = sorted(o.attributes.get("correlated_hostnames") or [])
+            norm_val = o.normalized_value.strip().lower()
+
+            # Direct exact match with a declared destination (e.g. hostname to hostname or exact IP to IP)
+            if norm_val in declared_values:
+                matched_declared_values.add(norm_val)
+                o.attributes["correlation_status"] = "MATCHED"
+                continue
+
+            if len(correlated) == 1:
+                # Exactly one candidate hostname for this destination IP
+                h = correlated[0]
+                if h.strip().lower() in declared_values:
+                    # CASE A: unambiguous match with declared destination
+                    matched_declared_values.add(h.strip().lower())
+                    o.attributes["correlation_status"] = "MATCHED"
+                else:
+                    # Unambiguous DNS identity, but NOT declared
+                    o.attributes["correlation_status"] = "RESOLVED"
+                    findings.append(
+                        self.finding_engine.create_finding(
+                            run_id=run_id,
+                            category=FindingCategory.NETWORK,
+                            finding_type=FindingType.NETWORK_OBSERVED_NOT_DECLARED,
+                            severity=FindingSeverity.HIGH,
+                            subject=h,
+                            explanation=(
+                                f"Outbound network connection to '{o.name}' was observed at runtime "
+                                f"({o.occurrence_count} events) with DNS identity {h}, "
+                                f"which is not declared in application configuration."
+                            ),
+                            declared_state=None,
+                            observed_state=o.model_dump(mode="json"),
+                            evidence_ids=o.evidence_ids,
+                        )
+                    )
+
+            elif len(correlated) > 1:
+                # SHARED-IP AMBIGUITY: Multiple observed hostnames share this destination IP.
+                # Do NOT claim any declared hostname was matched unless evidence distinguishes it.
+                # Do NOT call this "undeclared".
+                o.attributes["correlation_status"] = "AMBIGUOUS"
+                o.attributes["correlation_reason"] = "Multiple observed hostnames share destination IP"
                 findings.append(
                     self.finding_engine.create_finding(
                         run_id=run_id,
                         category=FindingCategory.NETWORK,
-                        finding_type=FindingType.NETWORK_IDENTITY_UNCORRELATED,
+                        finding_type=FindingType.NETWORK_IDENTITY_AMBIGUOUS,
                         severity=FindingSeverity.MEDIUM,
                         subject=o.name,
                         explanation=(
-                            f"Observed outbound connection to numeric IP '{o.name}' "
-                            f"({o.occurrence_count} events) cannot be correlated with declared hostname(s) "
-                            f"({', '.join(d.name for d in declared_hostnames)}) without DNS interception."
+                            f"Observed outbound connection to destination IP '{o.name}' "
+                            f"has multiple candidate hostnames ({', '.join(correlated)}) "
+                            f"sharing the destination IP and cannot be disambiguated without additional evidence."
                         ),
                         declared_state=None,
                         observed_state=o.model_dump(mode="json"),
                         evidence_ids=o.evidence_ids,
                     )
                 )
+
             else:
+                # len(correlated) == 0: UNRESOLVED (no valid DNS resolution observed)
+                o.attributes["correlation_status"] = "UNRESOLVED"
+                if is_ip(o.name) and declared_hostnames:
+                    # CASE C: numeric IP with declared hostname(s) but no DNS
+                    # evidence mapping them. Do not call it definitely undeclared.
+                    findings.append(
+                        self.finding_engine.create_finding(
+                            run_id=run_id,
+                            category=FindingCategory.NETWORK,
+                            finding_type=FindingType.NETWORK_IDENTITY_UNCORRELATED,
+                            severity=FindingSeverity.MEDIUM,
+                            subject=o.name,
+                            explanation=(
+                                f"Observed outbound connection to numeric IP '{o.name}' "
+                                f"({o.occurrence_count} events) cannot be correlated with declared hostname(s) "
+                                f"({', '.join(d.name for d in declared_hostnames)}) without DNS evidence."
+                            ),
+                            declared_state=None,
+                            observed_state=o.model_dump(mode="json"),
+                            evidence_ids=o.evidence_ids,
+                        )
+                    )
+                else:
+                    findings.append(
+                        self.finding_engine.create_finding(
+                            run_id=run_id,
+                            category=FindingCategory.NETWORK,
+                            finding_type=FindingType.NETWORK_OBSERVED_NOT_DECLARED,
+                            severity=FindingSeverity.HIGH,
+                            subject=o.name,
+                            explanation=(
+                                f"Outbound network connection to '{o.name}' was observed at runtime "
+                                f"({o.occurrence_count} events) but is not declared in application configuration."
+                            ),
+                            declared_state=None,
+                            observed_state=o.model_dump(mode="json"),
+                            evidence_ids=o.evidence_ids,
+                        )
+                    )
+
+        # Reconcile declared network destinations that were not matched
+        for d in declared_nets:
+            if d.normalized_value.strip().lower() not in matched_declared_values:
                 findings.append(
                     self.finding_engine.create_finding(
                         run_id=run_id,
                         category=FindingCategory.NETWORK,
-                        finding_type=FindingType.NETWORK_OBSERVED_NOT_DECLARED,
-                        severity=FindingSeverity.HIGH,
-                        subject=o.name,
+                        finding_type=FindingType.NETWORK_DECLARED_NOT_OBSERVED,
+                        severity=FindingSeverity.LOW,
+                        subject=d.name,
                         explanation=(
-                            f"Outbound network connection to '{o.name}' was observed at runtime "
-                            f"({o.occurrence_count} events) but is not declared in application configuration."
+                            f"Network destination '{d.name}' was declared in {d.source} "
+                            f"but no outbound network connection to it was observed."
                         ),
-                        declared_state=None,
-                        observed_state=o.model_dump(mode="json"),
-                        evidence_ids=o.evidence_ids,
+                        declared_state=d.model_dump(mode="json"),
+                        observed_state=None,
+                        evidence_ids=[],
                     )
                 )
 

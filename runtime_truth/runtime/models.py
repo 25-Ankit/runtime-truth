@@ -27,3 +27,7 @@ class RuntimeObserverConfig(BaseModel):
     build_if_missing: bool = True
     target_workdir: str = "/app"
     read_only_mount: bool = True
+    dns_enabled: bool = True
+    dns_records_filename: str = "dns_records.json"
+    dns_stub_image: str = "python:3.12-slim"
+    dns_ready_timeout_seconds: int = 20

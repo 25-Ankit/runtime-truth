@@ -39,9 +39,13 @@ def test_docker_observer_live_execution(demo_app_dir):
     assert observer.last_raw_trace is not None
     assert len(observer.last_raw_trace) > 0
 
-    # Ensure collectors and metadata are attached
-    assert all(ev.collector == "strace_docker" for ev in raw_events)
-    sample_ev = raw_events[0]
+    # Ensure collectors and metadata are attached (strace + stub DNS)
+    collectors = {ev.collector for ev in raw_events}
+    assert "strace_docker" in collectors
+    assert "dns_stub" in collectors
+    assert observer.last_dns_trace is not None
+    assert len(observer.last_dns_trace) >= 1
+    sample_ev = next(ev for ev in raw_events if ev.collector == "strace_docker")
     assert sample_ev.metadata["image"] == "runtime-truth-tracer:latest"
     assert "exit_code" in sample_ev.metadata
 
@@ -67,12 +71,16 @@ def test_orchestrator_docker_mode(demo_app_dir):
         assert len(res.runtime_events) > 0
         assert len(res.findings) > 0
 
-        # Verify raw evidence is preserved
+        # Verify raw evidence is preserved (strace + DNS)
         assert res.raw_trace_path is not None
         assert res.raw_trace_path.exists()
         assert res.raw_trace_path.name == "strace.log"
         assert res.raw_trace_path.parent.name == "raw"
         assert len(res.raw_trace_path.read_text(encoding="utf-8")) > 0
+        assert res.raw_dns_path is not None
+        assert res.raw_dns_path.exists()
+        assert res.raw_dns_path.name == "dns.jsonl"
+        assert len(res.raw_dns_path.read_text(encoding="utf-8")) > 0
 
         # Verify artifacts
         assert (res.artifact_dir / "declared.json").exists()
@@ -81,11 +89,28 @@ def test_orchestrator_docker_mode(demo_app_dir):
         assert (res.artifact_dir / "findings.json").exists()
         assert (res.artifact_dir / "report.html").exists()
 
+        # DNS resolution produced canonical events
+        from runtime_truth.core.enums import RuntimeEventType
+
+        dns_events = [e for e in res.runtime_events if e.event_type == RuntimeEventType.DNS_RESOLUTION]
+        assert len(dns_events) >= 1
+        a_events = [e for e in dns_events if e.attributes.get("query_type") == "A" and e.attributes.get("answers")]
+        assert len(a_events) >= 1
+        assert a_events[0].attributes["query_name"] == "api.example.com"
+        assert "93.184.216.34" in a_events[0].attributes["answers"]
+
+        # CASE A: declared api.example.com correlated to observed 93.184.216.34
+        nets = [e for e in res.observed_model.entities if e.entity_type.value == "network_destination"]
+        matched = [e for e in nets if "api.example.com" in (e.attributes.get("correlated_hostnames") or [])]
+        assert len(matched) == 1
+
         # Check finding types: findings vs observations are separated
         finding_types = {f.finding_type for f in res.findings}
         assert FindingType.DEPENDENCY_DECLARED_NOT_OBSERVED in finding_types
         assert FindingType.PACKAGE_ARTIFACT_OBSERVED_NOT_DECLARED in finding_types
-        assert FindingType.NETWORK_IDENTITY_UNCORRELATED in finding_types
+        # Correlated destination produces neither UNCORRELATED nor DECLARED_NOT_OBSERVED
+        assert FindingType.NETWORK_IDENTITY_UNCORRELATED not in finding_types
+        assert FindingType.NETWORK_DECLARED_NOT_OBSERVED not in finding_types
         # TARGET_PROCESS must NOT be emitted as a finding
         assert FindingType.TARGET_PROCESS not in finding_types
         # ... but must remain in the ObservedModel
@@ -105,9 +130,9 @@ def test_orchestrator_docker_mode(demo_app_dir):
         from runtime_truth.findings.engine import FindingEngine
 
         summary = FindingEngine().summarize(res.findings)
-        assert summary.actionable_findings >= 2  # unused-package + /usr/bin/echo (+ declared network)
+        assert summary.actionable_findings >= 2  # unused-package + /usr/bin/echo
         assert summary.informational_observations >= 1
-        assert summary.unresolved_correlations >= 1
+        assert summary.unresolved_correlations == 0
 
 
 def test_cli_scan_docker_mode(demo_app_dir):

@@ -1,0 +1,1 @@
+{"ts": "2026-10-03T07:00:00.100000+00:00", "client": "172.18.0.3", "query_name": "api.example.com", "query_type": "A", "answers": ["93.184.216.34"], "cname_chain": [], "rcode": "NOERROR", "ttl": 60}

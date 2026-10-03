@@ -67,3 +67,40 @@ def test_orchestrator_with_offline_strace_replay(demo_app_dir):
         assert (res.artifact_dir / "observed.json").exists()
         assert (res.artifact_dir / "findings.json").exists()
         assert (res.artifact_dir / "report.html").exists()
+
+
+def test_orchestrator_offline_with_dns_replay_correlates(demo_app_dir):
+    """Deterministic CASE A without Docker: recorded strace + recorded DNS log."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = Database(str(Path(tmpdir) / "test.db"))
+        exporter = ArtifactExporter(base_dir=Path(tmpdir) / "artifacts")
+        orchestrator = Orchestrator(
+            db=db,
+            static_engine=get_default_static_engine(),
+            artifact_exporter=exporter,
+        )
+
+        log_file = demo_app_dir / "recorded_strace.log"
+        dns_file = demo_app_dir / "recorded_dns.jsonl"
+        assert log_file.exists()
+        assert dns_file.exists()
+
+        res = orchestrator.execute(
+            project_path=demo_app_dir,
+            runtime_mode=RuntimeMode.OFFLINE_EVENTS,
+            offline_log_path=log_file,
+            dns_log_path=dns_file,
+        )
+
+        assert res.run.status == RunStatus.COMPLETED
+        assert res.raw_dns_path is not None
+        assert res.raw_dns_path.name == "dns.jsonl"
+
+        # 93.184.216.34 correlated to declared api.example.com: matched, silent.
+        finding_types = {f.finding_type for f in res.findings}
+        assert FindingType.NETWORK_IDENTITY_UNCORRELATED in finding_types  # 198.51.100.1 stays unresolved
+        assert FindingType.NETWORK_DECLARED_NOT_OBSERVED not in finding_types
+        nets = [e for e in res.observed_model.entities if e.entity_type.value == "network_destination"]
+        by_ip = {e.name: e for e in nets}
+        assert by_ip["93.184.216.34"].attributes["correlated_hostnames"] == ["api.example.com"]
+        assert by_ip["198.51.100.1"].attributes["correlated_hostnames"] == []

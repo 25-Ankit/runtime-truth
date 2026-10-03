@@ -32,6 +32,7 @@ class ArtifactExporter:
         findings: List[Finding],
         html_report_content: Optional[str] = None,
         raw_trace_content: Optional[str] = None,
+        raw_dns_content: Optional[str] = None,
     ) -> Path:
         run_dir = self.get_run_dir(run_id)
 
@@ -40,12 +41,17 @@ class ArtifactExporter:
         declared_data = [e.model_dump(mode="json") for e in declared_entities]
         declared_file.write_text(json.dumps(declared_data, indent=2), encoding="utf-8")
 
-        # 2. raw/strace.log (Preserve raw evidence)
+        # 2. raw/strace.log + raw/dns.jsonl (Preserve raw evidence)
         if raw_trace_content is not None:
             raw_dir = run_dir / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
             raw_file = raw_dir / "strace.log"
             raw_file.write_text(raw_trace_content, encoding="utf-8")
+        if raw_dns_content is not None:
+            raw_dir = run_dir / "raw"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            dns_file = raw_dir / "dns.jsonl"
+            dns_file.write_text(raw_dns_content, encoding="utf-8")
 
         # 3. events.jsonl
         events_file = run_dir / "events.jsonl"

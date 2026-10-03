@@ -67,8 +67,8 @@ Shared event structure emitted by all observation normalizers.
 | `timestamp` | `datetime` | UTC timestamp of observation |
 | `pid` | `Optional[int]` | Operating system process identifier |
 | `process` | `Optional[str]` | Executable path |
-| `event_type` | `RuntimeEventType` | `process_spawn`, `process_exit`, `network_connect`, `dns_resolution`, `file_read`, `file_write`, `file_create`, `file_delete`, `environment_access` |
-| `attributes` | `Dict[str, Any]` | Extracted event attributes (destination, port, path, args) |
+| `event_type` | `RuntimeEventType` | `process_spawn`, `process_exit`, `network_connect`, `dns_resolution`, `file_read`, `file_write`, `file_create`, `file_delete`, `environment_access` (`dns_resolution` implemented in Phase 2; others reserved) |
+| `attributes` | `Dict[str, Any]` | Extracted event attributes (destination, port, path, args; for `dns_resolution`: `query_name`, `query_type`, `answers[]`, `cname_chain[]`, `rcode`, `ttl`) |
 | `source` | `str` | Collector identifier (`strace_host`, `strace_docker`, `strace_offline`) |
 | `raw_reference` | `Optional[str]` | Verbatim log entry |
 
@@ -88,7 +88,7 @@ Represents runtime behavior aggregated from one or more canonical events.
 | `last_observed_at` | `datetime` | Timestamp of latest occurrence |
 | `occurrence_count` | `int` | Number of events contributing to this entity |
 | `evidence_ids` | `List[str]` | References to supporting `Evidence` records |
-| `attributes` | `Dict[str, Any]` | Supporting telemetry metadata |
+| `attributes` | `Dict[str, Any]` | Supporting telemetry metadata; network entities carry `correlated_hostnames[]` (same-run DNS evidence, possibly empty) |
 
 ---
 

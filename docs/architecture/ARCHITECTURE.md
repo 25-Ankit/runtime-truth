@@ -71,7 +71,7 @@ The **Reconciliation Engine** operates exclusively on `DeclaredModel` vs `Observ
 
 - **Interface:** `RuntimeObserver` with `is_available()` and `observe(target, run_id)`.
 - **Implementations:**
-  - `DockerStraceObserver`: Builds or locates `runtime-truth-tracer:latest` (from `Dockerfile.tracer`), mounts the target project read-only (`:ro`), and traces child processes via `strace` using `--cap-add=SYS_PTRACE`. The host does not need `strace` installed.
+  - `DockerStraceObserver`: Builds or locates `runtime-truth-tracer:latest` (from `Dockerfile.tracer`), mounts the target project read-only (`:ro`), and traces child processes via `strace` using `--cap-add=SYS_PTRACE`. The host does not need `strace` installed. In Docker mode it additionally runs a stub-DNS sidecar (see §2b).
   - `StraceHostObserver`: Executes commands directly on the host using `strace -f -tt -e trace=...`.
   - `OfflineLogObserver`: Reads and replays previously recorded raw strace logs. Enables deterministic testing and CI verification without root privileges or Docker.
 - **Isolation Boundaries:**
@@ -79,6 +79,13 @@ The **Reconciliation Engine** operates exclusively on `DeclaredModel` vs `Observ
   - Target files are mounted read-only (`:ro`).
   - No Docker socket or host credentials are mounted into the tracer.
 - **Output:** Stream of `RawEvent` objects containing line sequences and raw payloads, and preservation of raw log in `.runtimetruth/runs/<run-id>/raw/strace.log`.
+
+### 2b. DNS Observation Subsystem (`runtime_truth/runtime/dns/`, Phase 2)
+
+- **Mechanism (option A — controlled observer at the container network boundary):** per-run bridge network plus a `python:3.12-slim` sidecar running stdlib-only `stub.py`; the tracer container joins with `--network <run-net> --dns <stub-ip>`. Chosen because it needs no host port 53, no root, no Internet, and yields structured query/answer evidence (strace `sendto` wire-format parsing was rejected as fragile; reverse DNS is never used).
+- **Stub semantics:** authoritative for test-controlled `<target>/dns_records.json` (`A`/`AAAA`/`CNAME`, multi-level chains); NXDOMAIN for unknown names; NODATA (NOERROR, zero answers) for known-name/wrong-type; query/answer/rcode/ttl/client log as JSONL to stdout, collected via `docker logs` into `raw/dns.jsonl`. Absent records file means honest NXDOMAIN, never fabricated mappings.
+- **Limitations (explicit):** only libc-resolver paths honoring `/etc/resolv.conf` are visible (no DoH/DoT, DNSSEC, `/etc/hosts` bypass); no PID attribution (`pid=null` on `dns_resolution` events); same-run correlation scope only (TTL recorded, not enforced); loopback/unspecified endpoints (incl. Docker embedded DNS `127.0.0.11`) are infrastructure plumbing, not destinations.
+- **Pipeline:** `dns.jsonl` → `DnsLogLoader` → `DnsEventNormalizer` → canonical `dns_resolution` events → run-scoped identity table in `CanonicalObservedModelBuilder` → `correlated_hostnames` + DNS evidence ids on `NETWORK_DESTINATION` entities → correlation-aware network reconciliation (CASE A silent match; CASE B hostname-subject finding; CASE C `NETWORK_IDENTITY_UNCORRELATED`; CASE D evidence-only). `ReconciliationEngine` core contains no DNS wire logic.
 
 ### 3. Canonical Normalization & Synthesis (`runtime_truth/observation/`)
 

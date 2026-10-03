@@ -20,6 +20,11 @@ from runtime_truth.core.models import (
 )
 from runtime_truth.observation.base import EventNormalizer, ObservedModelBuilder
 from runtime_truth.observation.builder import CanonicalObservedModelBuilder
+from runtime_truth.observation.dns import (
+    DnsEventNormalizer,
+    DnsLogLoader,
+    is_dns_collector,
+)
 from runtime_truth.observation.normalizer import StraceEventNormalizer
 from runtime_truth.reconciliation.engine import ReconciliationEngine
 from runtime_truth.reporting.html_report import HtmlReportGenerator
@@ -50,6 +55,7 @@ class OrchestrationResult:
     artifact_dir: Optional[Path] = None
     html_report_path: Optional[Path] = None
     raw_trace_path: Optional[Path] = None
+    raw_dns_path: Optional[Path] = None
 
 
 class Orchestrator:
@@ -68,6 +74,7 @@ class Orchestrator:
         self.db = db
         self.static_engine = static_engine
         self.normalizer = normalizer or StraceEventNormalizer()
+        self.dns_normalizer = DnsEventNormalizer()
         self.model_builder = model_builder or CanonicalObservedModelBuilder()
         self.reconciliation_engine = reconciliation_engine or ReconciliationEngine()
         self.artifact_exporter = artifact_exporter or ArtifactExporter()
@@ -87,6 +94,7 @@ class Orchestrator:
         runtime_mode: RuntimeMode = RuntimeMode.STATIC_ONLY,
         observer: Optional[RuntimeObserver] = None,
         offline_log_path: Optional[Path] = None,
+        dns_log_path: Optional[Path] = None,
     ) -> OrchestrationResult:
         run_id = generate_run_id()
         resolved_project = project_path.resolve()
@@ -119,6 +127,7 @@ class Orchestrator:
             evidence_list: List[Evidence] = []
             observed_model = ObservedModel(run_id=run_id, entities=[])
             raw_trace_content: Optional[str] = None
+            raw_dns_records: Optional[List] = None
 
             # Select observer if offline log provided or runtime mode requested
             active_observer = observer
@@ -139,12 +148,32 @@ class Orchestrator:
                 raw_trace_content = getattr(active_observer, "last_raw_trace", None)
                 if raw_trace_content is None and raw_events:
                     raw_trace_content = "\n".join(e.raw_payload for e in raw_events) + "\n"
+                observer_dns = getattr(active_observer, "last_dns_trace", None)
+                if observer_dns:
+                    raw_dns_records = list(observer_dns)
 
                 for raw_ev in raw_events:
-                    canonical_ev = self.normalizer.normalize(raw_ev, run_id=run_id)
+                    normalizer = (
+                        self.dns_normalizer
+                        if is_dns_collector(raw_ev.collector)
+                        else self.normalizer
+                    )
+                    canonical_ev = normalizer.normalize(raw_ev, run_id=run_id)
                     if canonical_ev:
                         runtime_events.append(canonical_ev)
 
+            # Optional recorded DNS log (deterministic replay of raw/dns.jsonl).
+            # Merged with live observer DNS evidence when both are present.
+            if dns_log_path and dns_log_path.exists():
+                dns_loader = DnsLogLoader(dns_log_path)
+                for raw_ev in dns_loader.load(run_id=run_id):
+                    canonical_ev = self.dns_normalizer.normalize(raw_ev, run_id=run_id)
+                    if canonical_ev:
+                        runtime_events.append(canonical_ev)
+                if dns_loader.last_dns_trace:
+                    raw_dns_records = (raw_dns_records or []) + dns_loader.last_dns_trace
+
+            if active_observer and active_observer.is_available():
                 self.event_repo.save_many(runtime_events)
                 observed_model, evidence_list = self.model_builder.build(runtime_events, run_id=run_id)
                 self.observed_repo.save_many(observed_model.entities)
@@ -167,6 +196,14 @@ class Orchestrator:
                 evidence_list=evidence_list,
             )
 
+            raw_dns_content: Optional[str] = None
+            if raw_dns_records:
+                import json as _json
+
+                raw_dns_content = "".join(
+                    _json.dumps(rec) + "\n" for rec in raw_dns_records
+                )
+
             artifact_dir = self.artifact_exporter.export_artifacts(
                 run_id=run_id,
                 declared_entities=declared_model.entities,
@@ -175,6 +212,7 @@ class Orchestrator:
                 findings=findings,
                 html_report_content=html_content,
                 raw_trace_content=raw_trace_content,
+                raw_dns_content=raw_dns_content,
             )
 
             # Complete Run
@@ -183,6 +221,7 @@ class Orchestrator:
             self.run_repo.save(run)
 
             raw_trace_path = (artifact_dir / "raw" / "strace.log") if (artifact_dir / "raw" / "strace.log").exists() else None
+            raw_dns_path = (artifact_dir / "raw" / "dns.jsonl") if (artifact_dir / "raw" / "dns.jsonl").exists() else None
 
             return OrchestrationResult(
                 run=run,
@@ -194,6 +233,7 @@ class Orchestrator:
                 artifact_dir=artifact_dir,
                 html_report_path=artifact_dir / "report.html",
                 raw_trace_path=raw_trace_path,
+                raw_dns_path=raw_dns_path,
             )
 
         except Exception as exc:

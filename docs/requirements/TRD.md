@@ -86,10 +86,10 @@ Priorities: `P0` (correctness/safety-critical) | `P1` (core function) | `P2` (ro
 - **Rationale:** Suppresses interpreter/loader noise and ordinary source reads.
 - **Priority:** P1. **Status:** IMPLEMENTED.
 
-### TR-015 — Network observation without DNS correlation
-- **Requirement:** Observed numeric IPs with no exact declared match shall be emitted as `NETWORK_IDENTITY_UNCORRELATED` (MEDIUM) whenever declared hostnames exist, with an explanation citing missing DNS interception; exact-match logic otherwise applies. No IP→hostname claim shall be made.
-- **Rationale:** Honest handling of the hostname/IP gap pending Phase 2.
-- **Priority:** P1. **Status:** PARTIALLY_IMPLEMENTED (observation + honest classification done; correlation itself is Phase 2, TR-023).
+### TR-015 — Network observation with DNS correlation
+- **Requirement:** Observed numeric IPs shall be correlated to declared hostnames only through same-run `dns_resolution` evidence (`correlated_hostnames` on the normalized network entity). Correlated matches are silent (CASE A). Correlated-but-undeclared hostnames yield `NETWORK_OBSERVED_NOT_DECLARED` with the hostname as subject (CASE B). IPs with declared hostnames but no supporting DNS evidence yield `NETWORK_IDENTITY_UNCORRELATED` (MEDIUM, CASE C). No IP→hostname claim shall ever be made without DNS evidence; reverse DNS is never used.
+- **Rationale:** Evidence-backed network identity for the documented supported path.
+- **Priority:** P1. **Status:** IMPLEMENTED (`runtime_truth/runtime/dns/`, `runtime_truth/observation/dns.py`, builder correlation table, reconciliation network section).
 
 ## D. Data
 
@@ -141,7 +141,8 @@ Priorities: `P0` (correctness/safety-critical) | `P1` (core function) | `P2` (ro
 ## J. Planned (not implemented — see TDP v1.0)
 
 ### TR-023 — DNS resolution / network identity correlation (Phase 2)
-- **Requirement (future):** Correlate observed numeric IPs to declared hostnames via intercepted DNS evidence. **Priority:** P1. **Status:** PLANNED. No DNS interception exists today.
+- **Requirement:** Correlate observed numeric IPs to declared hostnames via stub-observed DNS evidence: sidecar stub resolver on a dedicated bridge network (`--network` + `--dns`), stdlib `stub.py` (A/AAAA/CNAME, NXDOMAIN/NODATA), JSONL query log → `raw/dns.jsonl` → canonical `dns_resolution` events (pid null, documented) → run-scoped identity table → `correlated_hostnames` + DNS evidence ids on network entities. Records come from test-controlled `<target>/dns_records.json`; absent file means honest NXDOMAIN, never fabricated mappings.
+- **Priority:** P1. **Status:** IMPLEMENTED. Limitations (documented): libc-resolver paths honoring `/etc/resolv.conf` only; no DoH/DoT/DNSSEC/`hosts`-bypass visibility; same-run scope only (TTL recorded, not enforced); IPv4 proven live, IPv6 via unit tests.
 
 ### TR-024 — Lockfile and dependency resolution (Phase 3)
 - **Requirement (future):** Parse `poetry.lock` / `package-lock.json` / `pnpm-lock.yaml` and resolve direct-vs-transitive relationships so package artifacts can be attributed. **Priority:** P1. **Status:** PLANNED. Today artifacts carry `observation_type=observed_package_artifact` with relationship explicitly unverified.
@@ -167,4 +168,4 @@ Priorities: `P0` (correctness/safety-critical) | `P1` (core function) | `P2` (ro
 
 ---
 
-**Counts:** 35 requirements — IMPLEMENTED 25 · PARTIALLY_IMPLEMENTED 2 (TR-015, TR-025) · PLANNED 4 (TR-023, TR-024, TR-026, TR-027) · OUT_OF_SCOPE 4 (TR-032…TR-035).
+**Counts:** 35 requirements — IMPLEMENTED 27 · PARTIALLY_IMPLEMENTED 1 (TR-025) · PLANNED 3 (TR-024, TR-026, TR-027) · OUT_OF_SCOPE 4 (TR-032…TR-035).

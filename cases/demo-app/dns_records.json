@@ -1,0 +1,6 @@
+{
+  "_comment": "Test-controlled DNS records served by the Runtime Truth stub resolver during --mode docker runs. Deterministic fixture: never depends on public Internet DNS.",
+  "api.example.com": {
+    "A": ["93.184.216.34"]
+  }
+}
