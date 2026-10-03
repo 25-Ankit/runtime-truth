@@ -93,14 +93,19 @@ The **Reconciliation Engine** operates exclusively on `DeclaredModel` vs `Observ
 ### 4. Reconciliation & Findings Engine (`runtime_truth/reconciliation/` & `runtime_truth/findings/`)
 
 - **Matcher (`EntityMatcher`):** Compares declared normalized values against observed normalized values by category (`DEPENDENCY`, `NETWORK_DESTINATION`, `FILESYSTEM_PATH`, `PROCESS`, `ENVIRONMENT_VARIABLE`).
-- **Discrepancy Categorization:**
+- **Discrepancy Categorization (actionable findings):**
   - `DEPENDENCY_DECLARED_NOT_OBSERVED`: Declared in manifests but never imported or loaded during execution.
-  - `RUNTIME_DEPENDENCY_NOT_DECLARED`: Loaded from `site-packages` or runtime files without appearing in declarations.
   - `NETWORK_DECLARED_NOT_OBSERVED`: Configured external host never contacted.
-  - `NETWORK_OBSERVED_NOT_DECLARED`: Outbound TCP/UDP connection observed to an undeclared address.
-  - `FILESYSTEM_OBSERVED_NOT_DECLARED`: Application file accessed outside declared paths.
-  - `PROCESS_OBSERVED_NOT_DECLARED`: Child executable launched that was not declared in Dockerfile CMD/ENTRYPOINT.
+  - `NETWORK_OBSERVED_NOT_DECLARED`: Outbound connection observed to an address with no declared match and no declared hostnames to correlate against.
+  - `FILESYSTEM_OBSERVED_NOT_DECLARED`: Application file accessed outside declared paths and outside expected workspace activity.
+  - `PROCESS_OBSERVED_NOT_DECLARED`: Child executable launched that was not declared in Dockerfile CMD/ENTRYPOINT (target runner process excluded).
   - `ENVIRONMENT_OBSERVED_NOT_DECLARED`: Environment variable read via `os.environ` that was not declared.
+- **Informational observations (not counted as discrepancies):**
+  - `PACKAGE_ARTIFACT_OBSERVED_NOT_DECLARED` (INFO): `site-packages`/`dist-packages` file access; direct-vs-transitive relationship unverified.
+- **Unresolved correlations:**
+  - `NETWORK_IDENTITY_UNCORRELATED` (MEDIUM): Observed numeric IP with declared hostname(s) present but no DNS evidence to correlate.
+- **Observed-model-only (never a finding):** the first spawned process is recorded as `TARGET_PROCESS` (`is_target_process`, `process_role`) in the `ObservedModel`.
+- **Note:** `RUNTIME_DEPENDENCY_NOT_DECLARED` remains a reserved actionable type (legacy) but the engine currently emits `PACKAGE_ARTIFACT_OBSERVED_NOT_DECLARED` for package loads.
 - **Evidence Linking:** Every finding referencing runtime behavior retains the IDs of the supporting `Evidence` records.
 
 ### 5. Storage Layer (`runtime_truth/storage/`)

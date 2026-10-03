@@ -18,7 +18,7 @@ Represents an execution instance of Runtime Truth over a target project.
 | `status` | `RunStatus` | `pending`, `running`, `completed`, `failed` |
 | `tool_version` | `str` | Version of Runtime Truth (e.g. `0.1.0`) |
 | `host_metadata` | `Dict[str, Any]` | Platform OS, Python version, architecture |
-| `runtime_mode` | `RuntimeMode` | `static_only`, `offline_events`, `host_strace`, `container_strace` |
+| `runtime_mode` | `RuntimeMode` | `static_only`, `offline_events`, `host_strace`, `container_strace`, `docker` |
 
 ---
 
@@ -81,7 +81,7 @@ Represents runtime behavior aggregated from one or more canonical events.
 |---|---|---|
 | `entity_id` | `str` | Deterministic hash ID `ent_<hex16>` |
 | `run_id` | `str` | Reference to parent `Run` |
-| `entity_type` | `ObservedEntityType` | `dependency`, `network_destination`, `filesystem_path`, `environment_variable`, `process` |
+| `entity_type` | `ObservedEntityType` | `dependency`, `package_artifact`, `network_destination`, `filesystem_path`, `environment_variable`, `process` |
 | `name` | `str` | Observed resource name |
 | `normalized_value` | `str` | Canonical normalized value |
 | `first_observed_at` | `datetime` | Timestamp of first occurrence |
@@ -116,7 +116,7 @@ Records a discrepancy or observation between the Declared Model and Observed Mod
 | `finding_id` | `str` | Deterministic hash ID `fnd_<hex16>` |
 | `run_id` | `str` | Reference to parent `Run` |
 | `category` | `FindingCategory` | `dependency`, `network`, `filesystem`, `process`, `environment`, `behavior` |
-| `finding_type` | `FindingType` | Discrepancy identifier (e.g. `RUNTIME_DEPENDENCY_NOT_DECLARED`) |
+| `finding_type` | `FindingType` | Discrepancy/observation identifier: actionable (`DEPENDENCY_DECLARED_NOT_OBSERVED`, `NETWORK_*`, `FILESYSTEM_*`, `PROCESS_*`, `ENVIRONMENT_*`), informational (`PACKAGE_ARTIFACT_OBSERVED_NOT_DECLARED`), unresolved (`NETWORK_IDENTITY_UNCORRELATED`); `TARGET_PROCESS` is observed-model-only, `BEHAVIORAL_DRIFT` reserved |
 | `severity` | `FindingSeverity` | `info`, `low`, `medium`, `high` |
 | `subject` | `str` | Target entity (e.g. package name, destination IP, file path) |
 | `declared_state` | `Optional[Dict]` | Serialized declaration details if declared |
